@@ -2,64 +2,99 @@
 
 SDLog::SDLog() {
   lineIndex = 0;
+  recInLine = 0;
   fileIndex = 0;
   opened = false; 
+  errorCode = SDLOG_OK;
 }
 
-void SDLog::log(struct RecordData *d) {
-  if (lineIndex >= IN_FILE_LINES_LIMIT) {
-
-    mF.close();
-    opened = false;
-    fileIndex++;
-    lineIndex = 0;
-  } else {
-    if (lineIndex == 0 && !opened) {
-      byte i = sizeof(newFolderNumber);
-      while ( i-- ) *( fileName + i ) = *( newFolderNumber + i );
-      strcat(fileName, "/");
-      itoa(fileIndex,fileBuf,10);
-      strcat(fileName,fileBuf);
-      strcat(fileName,".log");
-      mF = SD.open(fileName, FILE_WRITE);
+boolean SDLog::log(struct RecordData *d) {
+  if (errorCode != SDLOG_OK) return false;
+  if (!opened) {
+    byte i = sizeof(newFolderNumber);
+    while ( i-- ) *( fileName + i ) = *( newFolderNumber + i );
+    strcat(fileName, "/");
+    itoa(fileIndex,fileBuf,10);
+    strcat(fileName,fileBuf);
+    strcat(fileName,".log");
+    mF = SD.open(fileName, FILE_WRITE);
+    if (!mF) {
+      errorCode = SDLOG_ERR_OPEN_FILE;
       #ifdef DEBUG_SDLOG  
-        Serial.print(F("File "));
+        Serial.print(F("File open failed: "));
         Serial.println(fileName);
       #endif
-      opened = true;
+      return false;
     }
-
-    add(d);
-  
-    if (d->index == 0)
-      writeLine(d);
+    opened = true;
+    lineIndex = 0;
+    recInLine = 0;
+    #ifdef DEBUG_SDLOG  
+      Serial.print(F("File "));
+      Serial.println(fileName);
+    #endif
   }
+
+  add(d);
+
+  if (recInLine >= RECORDS_PER_LINE)
+    if (!writeLine()) return false;
+
+  return true;
 }
 
 void SDLog::add(struct RecordData *d) {
-  byte *currentByteData, *lastFreePositon; 
-  currentByteData = (byte *)&d->timer;
-  lastFreePositon = (byte *)&d->bs[0] + d->index;
-  if (d->index < ONE_LINE_BYTES_LIMIT) {
-    for (int i = 0; i < ONE_RECORD_BYTES_SIZE; i++)
-      *lastFreePositon++ = *currentByteData++;
-    d->index += ONE_RECORD_BYTES_SIZE;
-  } else { 
-    d->bs[0] = '\0';
-    d->index = 0;
+  memcpy(lineBuf + recInLine * ONE_RECORD_BYTES_SIZE, d, ONE_RECORD_BYTES_SIZE);
+  recInLine++;
+}
+
+boolean SDLog::writeLine() {
+  if (mF.write((const uint8_t *)lineBuf, ONE_LINE_BYTES_LIMIT) != ONE_LINE_BYTES_LIMIT) {
+    errorCode = SDLOG_ERR_WRITE;
+    mF.close();
+    opened = false;
+    recInLine = 0;
+    return false;
   }
-}
-
-void SDLog::writeLine(struct RecordData *d) {
-  mF.write((const uint8_t *)d->bs, ONE_LINE_BYTES_LIMIT);
+  mF.flush();
+  recInLine = 0;
   lineIndex++;
+  if (lineIndex >= IN_FILE_LINES_LIMIT) {
+    mF.close();
+    opened = false;
+    fileIndex++;
+  }
+  return true;
 }
 
-void SDLog::createNewFolder() {
-  mF = SD.open("/");
+boolean SDLog::createNewFolder() {
+  errorCode = SDLOG_OK;
+  if (opened) {
+    if (recInLine > 0) {
+      int tailBytes = recInLine * ONE_RECORD_BYTES_SIZE;
+      if (mF.write((const uint8_t *)lineBuf, tailBytes) != tailBytes) {
+        errorCode = SDLOG_ERR_WRITE;
+        mF.close();
+        opened = false;
+        recInLine = 0;
+        lineIndex = 0;
+        return false;
+      }
+      mF.flush();
+    }
+    mF.close();
+    opened = false;
+    recInLine = 0;
+    lineIndex = 0;
+  }
+  File root = SD.open("/");
+  if (!root) {
+    errorCode = SDLOG_ERR_OPEN_ROOT;
+    return false;
+  }
   int lastfolderNum = 0;
   while (true) {
-    File entry =  mF.openNextFile();
+    File entry =  root.openNextFile();
     if (! entry) {
       break;
     }
@@ -68,24 +103,31 @@ void SDLog::createNewFolder() {
     }
     entry.close();
   }
-  mF.close();
+  root.close();
   itoa(lastfolderNum + 1, newFolderNumber, 10);
   if (SD.exists(newFolderNumber)) {
     #ifdef DEBUG_SDLOG
-      Serial.println("Already exists!");
+      Serial.println("Already exists. Remove!");
     #endif
     SD.remove(newFolderNumber);
   }
-  SD.mkdir(newFolderNumber);
-  mF = SD.open(newFolderNumber);
+  bool result = SD.mkdir(newFolderNumber);
+  Serial.print("Создан каталог: ");
+  Serial.println(result?F("successful"):F("failed"));
+  if (!result) {
+    errorCode = SDLOG_ERR_CREATE_FOLDER;
+    return false;
+  }
   #ifdef DEBUG_SDLOG
-    Serial.print(F("Create folder ")); 
+    Serial.print(F("Create folder "));
     Serial.print(newFolderNumber);
-    Serial.print(F(": "));
-    Serial.println(mF && mF.isDirectory()?F("successful"):F("failed")); 
-    mF.close(); 
+    Serial.println(SD.exists(newFolderNumber) ? F(": successful") : F(": failed"));
+    delay(1000);
   #endif
-  
+  fileIndex = 1;
+  lineIndex = 0;
+  recInLine = 0;
+  return true;
 }
 
 boolean SDLog::checkTheFolderIsDigit(char * dirPointer) {
@@ -96,4 +138,12 @@ boolean SDLog::checkTheFolderIsDigit(char * dirPointer) {
       }
       return true;
 
+}
+
+boolean SDLog::hasError() {
+  return errorCode != SDLOG_OK;
+}
+
+byte SDLog::getLastError() {
+  return errorCode;
 }

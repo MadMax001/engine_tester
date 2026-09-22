@@ -5,8 +5,8 @@
 #include "SDLog.h"
 #define DEBUG_System
 
-#define LOG_CHIP_SELECT_PIN 5         //chip_select для контроллера SD
-#define BTN_RESET_PIN 8               //сброс (тарирование + запись в новый файл)
+#define LOG_CHIP_SELECT_PIN 10         //chip_select для контроллера SD
+#define BTN_RESET_PIN 2               //сброс (тарирование + запись в новый файл)
 
 GyverHX711 sensor(7, 6, HX_GAIN64_A);
 // HX_GAIN128_A - канал А усиление 128
@@ -32,6 +32,7 @@ void setup() {
 }
 
 void hardSetup() {
+  delay(1000);
   pinMode(LOG_CHIP_SELECT_PIN, OUTPUT);
   butReset = new GButton(BTN_RESET_PIN);
   butReset->setTickMode(AUTO);
@@ -39,7 +40,7 @@ void hardSetup() {
   #ifdef DEBUG_System  
     Serial.print(F("Initializing SD card... "));
   #endif
-  if (!SD.begin(SD_CHIP_SELECT_PIN)) {
+  if (!SD.begin(LOG_CHIP_SELECT_PIN)) {
     #ifdef DEBUG_System  
       Serial.println(F("initialization failed!"));
     #endif
@@ -55,13 +56,13 @@ void hardSetup() {
 void loop() {
     if (sensor.available()) {
       unsigned long elapsed = millis() - startTime;
-      float weight = sensor.read() / 52.4;
-      logMeasuredData(elapsed, weight);
+      long weight100 = (long)((int64_t)sensor.read() * 1000L / 524L);
+      logMeasuredData(elapsed, weight100);
       if (butReset->isRelease()) {
         reset();  
       }
       #ifdef DEBUG_System
-        printDebugLine(elapsed, weight);   
+        printDebugLine(elapsed, weight100);   
         if (Serial.available() > 0) {
           char c = Serial.read();
           if (c == ' ') {
@@ -70,6 +71,7 @@ void loop() {
         }
       #endif  
     }
+    butReset->tick();
 }
 
 void reset() {
@@ -77,24 +79,40 @@ void reset() {
     Serial.println(F(">>> Выполняется тарирование (обнуление)..."));
   #endif
   startTime = millis();
-  sdlog.createNewFolder();
+  if (!sdlog.createNewFolder()) {
+    error = true;
+    #ifdef DEBUG_System
+      Serial.print(F("Ошибка SD: создание каталога не выполнено, код "));
+      Serial.println(sdlog.getLastError());
+    #endif
+  } else if (error) {
+    error = false;
+    #ifdef DEBUG_System
+      Serial.println(F(">>> Запись на SD восстановлена."));
+    #endif
+  }
   sensor.tare(); 
 }
 
-void printDebugLine(unsigned long timer, float weight) {
-    int minutes    = timer / 60000;
-    int seconds    = (timer % 60000) / 1000;
-    int hundredths = (timer % 1000) / 10;
-    
-    sprintf(buf, "%02d:%02d.%02d\r", minutes, seconds, hundredths);
-  
-    Serial.print(buf);
+void printDebugLine(unsigned long timer, long weight100) {
     Serial.print(F("  "));
-    Serial.println(weight);
+    Serial.println(weight100 / 100.0);
 }
 
-void logMeasuredData(unsigned long timer, float weight) {
+void reportError(const __FlashStringHelper *action) {
+    if (error) return;
+    error = true;
+    #ifdef DEBUG_System
+      Serial.print(F("Ошибка SD: "));
+      Serial.print(action);
+      Serial.print(F(", код "));
+      Serial.println(sdlog.getLastError());
+    #endif
+}
+
+void logMeasuredData(unsigned long timer, long weight100) {
     logData.timer = timer;
-    logData.weight = weight;
-    sdlog.log(&logData);
+    logData.weight100 = weight100;
+    if (!sdlog.log(&logData))
+      reportError(F("запись измерения не выполнена"));
 }
