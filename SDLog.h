@@ -1,7 +1,7 @@
 #ifndef SDLog_H
 #define SDLog_H
 
-#define DEBUG_SDLOG
+//#define DEBUG_SDLOG
 
 #define ONE_LINE_BYTES_LIMIT 240              //количество байт в одной строке
 #define ONE_RECORD_BYTES_SIZE 8               //размер одной записи в байтах (long timer + long weight100)

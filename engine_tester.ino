@@ -3,7 +3,7 @@
 #include <GyverHX711.h>
 
 #include "SDLog.h"
-#define DEBUG_System
+//#define DEBUG_System
 
 #define LOG_CHIP_SELECT_PIN 10         //chip_select для контроллера SD
 #define BTN_RESET_PIN 2               //сброс (тарирование + запись в новый файл)
