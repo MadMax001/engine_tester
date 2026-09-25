@@ -27,6 +27,7 @@ class SDLog {
   private:
     void add(struct RecordData *d);
     boolean writeLine();
+    boolean openFile();
     void removeFiles(File mF, char fileName[]);
     boolean checkTheFolderIsDigit(char * dirPointer);
     

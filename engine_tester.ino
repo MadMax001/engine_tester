@@ -97,7 +97,7 @@ void reset() {
     error = true;
     mode = WAIT_MODE;
     #ifdef DEBUG_System
-      Serial.print(F("Ошибка SD: создание каталога не выполнено, код "));
+      Serial.print(F("Ошибка SD: запуск записи не выполнен, код "));
       Serial.println(sdlog.getLastError());
     #endif
   } else {

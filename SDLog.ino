@@ -8,31 +8,36 @@ SDLog::SDLog() {
   errorCode = SDLOG_OK;
 }
 
+boolean SDLog::openFile() {
+  byte i = sizeof(newFolderNumber);
+  while ( i-- ) *( fileName + i ) = *( newFolderNumber + i );
+  strcat(fileName, "/");
+  itoa(fileIndex, fileBuf, 10);
+  strcat(fileName, fileBuf);
+  strcat(fileName, ".log");
+  mF = SD.open(fileName, FILE_WRITE);
+  if (!mF) {
+    errorCode = SDLOG_ERR_OPEN_FILE;
+    #ifdef DEBUG_SDLOG
+      Serial.print(F("File open failed: "));
+      Serial.println(fileName);
+    #endif
+    return false;
+  }
+  opened = true;
+  lineIndex = 0;
+  recInLine = 0;
+  #ifdef DEBUG_SDLOG
+    Serial.print(F("File "));
+    Serial.println(fileName);
+  #endif
+  return true;
+}
+
 boolean SDLog::log(struct RecordData *d) {
   if (errorCode != SDLOG_OK) return false;
   if (!opened) {
-    byte i = sizeof(newFolderNumber);
-    while ( i-- ) *( fileName + i ) = *( newFolderNumber + i );
-    strcat(fileName, "/");
-    itoa(fileIndex,fileBuf,10);
-    strcat(fileName,fileBuf);
-    strcat(fileName,".log");
-    mF = SD.open(fileName, FILE_WRITE);
-    if (!mF) {
-      errorCode = SDLOG_ERR_OPEN_FILE;
-      #ifdef DEBUG_SDLOG  
-        Serial.print(F("File open failed: "));
-        Serial.println(fileName);
-      #endif
-      return false;
-    }
-    opened = true;
-    lineIndex = 0;
-    recInLine = 0;
-    #ifdef DEBUG_SDLOG  
-      Serial.print(F("File "));
-      Serial.println(fileName);
-    #endif
+    if (!openFile()) return false;
   }
 
   add(d);
@@ -63,6 +68,7 @@ boolean SDLog::writeLine() {
     mF.close();
     opened = false;
     fileIndex++;
+    if (!openFile()) return false;
   }
   return true;
 }
@@ -111,6 +117,10 @@ boolean SDLog::createNewFolder() {
     #endif
     SD.remove(newFolderNumber);
   }
+  #ifdef DEBUG_SDLOG
+    Serial.print(F("Try create folder "));
+    Serial.println(newFolderNumber);
+  #endif
   bool result = SD.mkdir(newFolderNumber);
   Serial.print("Создан каталог: ");
   Serial.println(result?F("successful"):F("failed"));
@@ -122,11 +132,9 @@ boolean SDLog::createNewFolder() {
     Serial.print(F("Create folder "));
     Serial.print(newFolderNumber);
     Serial.println(SD.exists(newFolderNumber) ? F(": successful") : F(": failed"));
-    delay(1000);
   #endif
   fileIndex = 1;
-  lineIndex = 0;
-  recInLine = 0;
+  if (!openFile()) return false;
   return true;
 }
 
